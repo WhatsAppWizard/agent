@@ -19,9 +19,7 @@ on:
       - '.env.example'
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-  DOCKER_BUILDKIT: 1
+  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/Wizard-Agent
 
 jobs:
   build-and-push:
@@ -57,23 +55,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Log in to the Container registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.DOCKER_IMAGE }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
       - name: Build and push Docker image
