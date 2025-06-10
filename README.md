@@ -15,6 +15,23 @@ WhatsAppWizard is an AI-powered WhatsApp bot that can process messages in multip
 - Sticker creation from images
 - OpenRouter AI integration
 
+## Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+# API Configuration
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
+
+# Server Configuration
+PORT=8000
+HOST=0.0.0.0
+
+# Database Configuration (PostgreSQL)
+DATABASE_URL=postgresql+asyncpg://username:password@host:port/database
+```
+
 ## Prerequisites 📋
 
 - Python 3.8+
@@ -50,22 +67,19 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 
 ### Docker Deployment
 
-1. Build and run using Docker:
+1. Build the Docker image:
 ```bash
-# Build the image
 docker build -t whatsapp-wizard .
-
-# Run the container
-docker run -p 8000:8000 -e OPENROUTER_API_KEY=your_api_key whatsapp-wizard
 ```
 
-2. Or use Docker Compose:
+2. Run the container:
 ```bash
-# Create .env file with your API key
-echo "OPENROUTER_API_KEY=your_api_key" > .env
-
-# Build and run
-docker-compose up --build
+docker run -d \
+  -p 8000:8000 \
+  -e OPENROUTER_API_KEY=your_key \
+  -e OPENROUTER_API_URL=your_url \
+  -e DATABASE_URL=your_postgres_url \
+  whatsapp-wizard
 ```
 
 ## GitHub Actions Workflow 🔄
@@ -140,4 +154,11 @@ The project includes:
 
 ## License 📄
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Database Setup
+
+The application uses PostgreSQL as its database. You can use any PostgreSQL service provider. The connection string should follow this format:
+```
+postgresql+asyncpg://username:password@host:port/database
+``` 

@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 import aiohttp
 import logging
+from database import ConversationDB
+import json
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +22,9 @@ OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL")
 PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
 
+# Initialize database
+db = ConversationDB()
+
 # Validate required environment variables
 if not OPENROUTER_API_KEY:
     raise ValueError("OPENROUTER_API_KEY environment variable is not set")
@@ -27,18 +32,55 @@ if not OPENROUTER_API_URL:
     raise ValueError("OPENROUTER_API_URL environment variable is not set")
 
 class WhatsAppWizard:
-    async def process_message(self, message: str, language: str = None) -> dict:
+    def __init__(self):
+        self.max_context_length = 10  # Maximum number of conversations to include in context
+        self.context_summary_threshold = 20  # Number of conversations before summarizing
+
+    async def process_message(self, message: str, user_id: str, language: str = None) -> dict:
         """Process incoming message and generate appropriate response"""
         try:
             # Detect language if not provided
             if not language:
                 language = await self._detect_language(message)
             
-            response = await self._get_ai_response(message, language)
+            # Get conversation history and context
+            context = await self._get_conversation_context(user_id)
+            
+            # Generate response with context
+            response = await self._get_ai_response(message, language, context)
+            
+            # Store conversation
+            db.add_conversation(user_id, message, response, language)
+            
             return {"response": response}
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
             return {"response": "Oops! I'm having a moment here 😅 Could you try again in a bit?"}
+
+    async def _get_conversation_context(self, user_id: str) -> str:
+        """Get conversation context for a user"""
+        # Get recent conversations
+        conversations = db.get_recent_conversations(user_id, self.max_context_length)
+        
+        # If we have too many conversations, get the summary
+        if len(conversations) >= self.context_summary_threshold:
+            summary = db.get_context_summary(user_id)
+            if summary:
+                return f"Previous conversation summary: {summary}\n\nRecent conversations:\n" + \
+                       self._format_conversations(conversations[:5])
+        
+        return self._format_conversations(conversations)
+
+    def _format_conversations(self, conversations: list) -> str:
+        """Format conversations for context"""
+        if not conversations:
+            return ""
+        
+        formatted = []
+        for conv in conversations:
+            formatted.append(f"User: {conv['message']}\nAssistant: {conv['response']}\n")
+        
+        return "\n".join(formatted)
 
     async def _detect_language(self, text: str) -> str:
         """Detect the language of the input text using OpenRouter"""
@@ -71,7 +113,7 @@ class WhatsAppWizard:
                     return detected_lang
                 return "en"  # Default to English if detection fails
 
-    async def _get_ai_response(self, message: str, language: str) -> str:
+    async def _get_ai_response(self, message: str, language: str, context: str = "") -> str:
         """Get AI response from OpenRouter"""
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -127,6 +169,9 @@ Remember: You're not just a bot, you're a helpful friend who makes WhatsApp more
 
 IMPORTANT: Always respond in the same language as the user's message. If the user writes in Spanish, respond in Spanish. If in French, respond in French, and so on."""
 
+        # Add context to the message if available
+        user_message = f"Previous conversation context:\n{context}\n\nCurrent message: {message}" if context else message
+
         data = {
             "model": "google/gemini-2.0-flash-exp:free",
             "messages": [
@@ -136,7 +181,7 @@ IMPORTANT: Always respond in the same language as the user's message. If the use
                 },
                 {
                     "role": "user",
-                    "content": f"User's message (detected language: {language}): {message}"
+                    "content": f"User's message (detected language: {language}): {user_message}"
                 }
             ],
             "temperature": 0.7,
@@ -161,11 +206,12 @@ async def webhook(request: Request):
     try:
         data = await request.json()
         
-        # Extract message from webhook data
+        # Extract message and user_id from webhook data
         message = data.get("message", {}).get("text", "")
+        user_id = data.get("user", {}).get("id", "unknown")
         
         # Process message (language will be detected automatically)
-        response = await wizard.process_message(message)
+        response = await wizard.process_message(message, user_id)
         
         return JSONResponse(content=response)
     except Exception as e:
