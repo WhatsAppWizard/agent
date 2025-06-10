@@ -22,4 +22,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/whatsapp-wizard:latest 
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/whatsapp-wizard-agent:latest 
