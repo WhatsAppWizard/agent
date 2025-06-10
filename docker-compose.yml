@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  whatsapp-wizard:
+    build: .
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_API_URL=${OPENROUTER_API_URL}
+      - PORT=${PORT:-8000}
+      - HOST=${HOST:-0.0.0.0}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8000}/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3 
