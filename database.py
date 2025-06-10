@@ -10,8 +10,17 @@ logger = logging.getLogger(__name__)
 class ConversationDB:
     async def init_db(self):
         """Initialize the database with required tables"""
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        try:
+            async with engine.begin() as conn:
+                # Drop all tables first (optional, comment out if you want to keep existing data)
+                # await conn.run_sync(Base.metadata.drop_all)
+                
+                # Create all tables
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error(f"Error creating database tables: {str(e)}")
+            raise
 
     async def add_conversation(self, user_id: str, message: str, response: str, language: str, metadata: Dict = None):
         """Add a new conversation entry"""

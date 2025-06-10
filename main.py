@@ -5,12 +5,14 @@ from dotenv import load_dotenv
 import aiohttp
 import logging
 from database import ConversationDB
+from database_config import Base, engine
 import json
+import asyncio
 
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="WhatsAppWizard")
+app = FastAPI(title="Wizard Agent")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +33,16 @@ if not OPENROUTER_API_KEY:
 if not OPENROUTER_API_URL:
     raise ValueError("OPENROUTER_API_URL environment variable is not set")
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    try:
+        await db.init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        raise
+
 class WhatsAppWizard:
     def __init__(self):
         self.max_context_length = 10  # Maximum number of conversations to include in context
@@ -50,7 +62,7 @@ class WhatsAppWizard:
             response = await self._get_ai_response(message, language, context)
             
             # Store conversation
-            db.add_conversation(user_id, message, response, language)
+            await db.add_conversation(user_id, message, response, language)
             
             return {"response": response}
         except Exception as e:
@@ -60,11 +72,11 @@ class WhatsAppWizard:
     async def _get_conversation_context(self, user_id: str) -> str:
         """Get conversation context for a user"""
         # Get recent conversations
-        conversations = db.get_recent_conversations(user_id, self.max_context_length)
+        conversations = await db.get_recent_conversations(user_id, self.max_context_length)
         
         # If we have too many conversations, get the summary
         if len(conversations) >= self.context_summary_threshold:
-            summary = db.get_context_summary(user_id)
+            summary = await db.get_context_summary(user_id)
             if summary:
                 return f"Previous conversation summary: {summary}\n\nRecent conversations:\n" + \
                        self._format_conversations(conversations[:5])
