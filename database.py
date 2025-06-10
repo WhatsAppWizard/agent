@@ -22,7 +22,7 @@ class ConversationDB:
                     message=message,
                     response=response,
                     language=language,
-                    metadata=metadata
+                    message_metadata=metadata
                 )
                 session.add(conversation)
                 await session.commit()
@@ -48,7 +48,7 @@ class ConversationDB:
                     'response': conv.response,
                     'language': conv.language,
                     'timestamp': conv.timestamp,
-                    'metadata': conv.metadata
+                    'metadata': conv.message_metadata
                 } for conv in conversations]
         except Exception as e:
             logger.error(f"Error getting conversations: {str(e)}")

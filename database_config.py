@@ -32,7 +32,7 @@ class Conversation(Base):
     response = Column(Text, nullable=False)
     language = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
-    metadata = Column(JSON)
+    message_metadata = Column(JSON)
 
 class UserContext(Base):
     __tablename__ = "user_context"
