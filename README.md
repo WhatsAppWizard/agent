@@ -1,4 +1,4 @@
-# WhatsAppWizard 🤖✨
+# Wizard Agent 🤖✨
 
 A powerful AI-powered WhatsApp bot that processes messages, creates stickers, and downloads media from various platforms with a touch of humor and personality.
 
@@ -55,7 +55,6 @@ HOST=0.0.0.0
 DATABASE_URL=postgresql+asyncpg://username:password@host:port/database
 ```
 
-
 ### Docker Deployment
 
 1. Build the image:
@@ -109,7 +108,7 @@ docker run -d \
 ### Project Structure
 
 ```
-whatsapp-wizard/
+Wizard-Agent/
 ├── .github/
 │   └── workflows/
 │       └── docker-build.yml
