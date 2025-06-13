@@ -21,13 +21,12 @@ Wizard-Agent is designed to enhance WhatsApp interactions by providing users wit
 4. [Usage Examples 💡](#usage-examples-)
 5. [Project Structure 📁](#project-structure-)
 6. [Contributing 🤝](#contributing-)
-7. [Testing 🧪](#testing-)
-8. [Deployment 🚀](#deployment-)
-9. [API Documentation 📚](#api-documentation-)
-10. [Roadmap 🗺️](#roadmap)
-11. [Support & Contact 💬](#support--contact-)
-12. [License 📄](#license-)
-13. [Acknowledgments 🙏](#acknowledgments-)
+7. [Deployment 🚀](#deployment-)
+8. [API Documentation 📚](#api-documentation-)
+9. [Roadmap 🗺️](#roadmap)
+10. [Support & Contact 💬](#support--contact-)
+11. [License 📄](#license-)
+12. [Acknowledgments 🙏](#acknowledgments-)
 
 ## Key Features ✨
 
@@ -190,7 +189,7 @@ Contributions are welcome! Please follow these guidelines:
 To set up your development environment:
 
 1.  Follow the [Installation](#installation) instructions.
-2.  Install development dependencies (e.g., linters, formatters).  TODO: Add dev dependecies in a requirements-dev.txt .
+2.  Install development dependencies (e.g., linters, formatters) .
 3.  Configure your editor for linting and formatting.
 
 If you find a bug or have a feature request, please open an issue on GitHub.
