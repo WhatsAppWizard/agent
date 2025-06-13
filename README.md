@@ -1,11 +1,12 @@
+<img width="128" src="https://github.com/user-attachments/assets/0e126a28-e0a3-46da-987c-34fc8bbd2567"/>
 
-# Wizard Agent
+# Wizard Agent 
 
 A conversational AI agent for WhatsApp, providing helpful support and explanations.
 
 [![Docker Build Status](https://img.shields.io/github/actions/workflow/status/gitnasr/Wizard-Agent/docker-build.yml?branch=main&label=Docker%20Build)](https://github.com/gitnasr/Wizard-Agent/actions/workflows/docker-build.yml)
 [![License](https://img.shields.io/github/license/gitnasr/Wizard-Agent)](https://github.com/gitnasr/Wizard-Agent/blob/main/LICENSE)
-<!-- Add version badge when applicable -->
+
 
 Wizard-Agent is designed to enhance WhatsApp interactions by providing users with AI-powered assistance. It focuses on explaining features, answering questions, and guiding users on how to utilize various services, without performing the actions themselves.
 
@@ -18,15 +19,15 @@ Wizard-Agent is designed to enhance WhatsApp interactions by providing users wit
     - [Configuration](#configuration)
     - [Running the Project](#running-the-project)
 4. [Usage Examples 💡](#usage-examples-)
-6. [Project Structure 📁](#project-structure-)
-7. [Contributing 🤝](#contributing-)
-8. [Testing 🧪](#testing-)
-9. [Deployment 🚀](#deployment-)
-10. [API Documentation 📚](#api-documentation-)
-11. [Roadmap 🗺️](#roadmap-)
-12. [Support & Contact 💬](#support--contact-)
-13. [License 📄](#license-)
-14. [Acknowledgments 🙏](#acknowledgments-)
+5. [Project Structure 📁](#project-structure-)
+6. [Contributing 🤝](#contributing-)
+7. [Testing 🧪](#testing-)
+8. [Deployment 🚀](#deployment-)
+9. [API Documentation 📚](#api-documentation-)
+10. [Roadmap 🗺️](#roadmap)
+11. [Support & Contact 💬](#support--contact-)
+12. [License 📄](#license-)
+13. [Acknowledgments 🙏](#acknowledgments-)
 
 ## Key Features ✨
 
