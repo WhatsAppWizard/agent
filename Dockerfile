@@ -1,18 +1,17 @@
-# Use Python 3.11 slim image as base
-FROM python:3.11-slim
+# Use Python 3.11 Alpine image for minimal size
+FROM python:3.11-alpine
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
+RUN apk add --no-cache \
+    build-base \
+    postgresql-dev \
     gcc \
     python3-dev \
     curl \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+    wget
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
