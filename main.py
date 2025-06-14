@@ -1,7 +1,9 @@
 import asyncio
+import functools
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -31,6 +33,9 @@ PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
 OPENROUTER_API_MODEL = os.getenv("OPENROUTER_API_MODEL")
 
+# Global thread pool executor for CPU-bound tasks
+executor: Optional[ThreadPoolExecutor] = None
+
 # Load system prompt from file
 SYSTEM_PROMPT_FILE = "system_prompt.txt"
 try:
@@ -49,13 +54,23 @@ model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight model for embeddi
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
+    """Initialize database and thread pool on startup"""
+    global executor
+    executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 1)
     try:
         await db.init_db()
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}")
         raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown the thread pool executor on application shutdown"""
+    global executor
+    if executor:
+        executor.shutdown(wait=True)
+        logger.info("ThreadPoolExecutor shut down successfully")
 
 class MemoryManager:
     def __init__(self):
@@ -191,12 +206,13 @@ Summary:"""
                     summary_tokens = result['usage']['total_tokens']
             
             # Store summary as a memory
+            loop = asyncio.get_running_loop()
             await db.add_memory(
                 user_id=user_id,
                 memory_type="summarization",
                 content=summary_content,
                 importance=0.7,
-                embedding=model.encode([summary_content]).tolist()
+                embedding=(await loop.run_in_executor(executor, functools.partial(model.encode, [summary_content]))).tolist()
             )
             logger.info(f"Successfully summarized {len(conversations)} conversations for user {user_id}. Tokens: {summary_tokens}")
             return summary_content, summary_tokens
@@ -209,14 +225,17 @@ Summary:"""
         """Process a new message with enhanced memory features"""
         try:
             # Ensure the user exists
-            await db.get_or_create_user(user_id)
+            # await db.get_or_create_user(user_id) # User creation is now handled by add_conversation/add_memory
 
             # Initialize topic
             topic = None
 
             # Generate embedding for the message
             try:
-                message_embedding = model.encode([message])[0]
+                loop = asyncio.get_running_loop()
+                message_embedding = (await loop.run_in_executor(
+                    executor, functools.partial(model.encode, [message])
+                ))[0]
             except Exception as e:
                 logger.error(f"Error generating embedding: {str(e)}")
                 message_embedding = None

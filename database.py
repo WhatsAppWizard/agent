@@ -2,7 +2,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -35,17 +34,24 @@ class ConversationDB:
             # await conn.run_sync(Base.metadata.drop_all) # Commented out to prevent data loss during development
             await conn.run_sync(Base.metadata.create_all)
 
-    async def get_or_create_user(self, user_id: str) -> None:
+    async def get_or_create_user(self, user_id: str, session: Optional[AsyncSession] = None) -> None:
         """Get or create a user record"""
-        async with self.async_session() as session:
-            query = select(User).where(User.id == user_id)
-            result = await session.execute(query)
-            user = result.scalar_one_or_none()
-            
-            if not user:
-                user = User(id=user_id)
-                session.add(user)
-                await session.commit()
+        if session is None:
+            async with self.async_session() as new_session:
+                await self._get_or_create_user_in_session(new_session, user_id)
+        else:
+            await self._get_or_create_user_in_session(session, user_id)
+
+    async def _get_or_create_user_in_session(self, session: AsyncSession, user_id: str) -> None:
+        """Helper to get or create user within a given session"""
+        query = select(User).where(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            user = User(id=user_id)
+            session.add(user)
+            await session.commit()
 
     async def add_conversation(self, user_id: str, message: str, response: str, 
                              language: str, embedding: List[float] = None, 
@@ -54,7 +60,7 @@ class ConversationDB:
         try:
             async with self.async_session() as session:
                 # Ensure user exists
-                await self.get_or_create_user(user_id)
+                await self.get_or_create_user(user_id, session)
                 
                 conversation = Conversation(
                     user_id=user_id,
@@ -213,7 +219,7 @@ class ConversationDB:
         try:
             async with self.async_session() as session:
                 # Ensure user exists
-                await self.get_or_create_user(user_id)
+                await self.get_or_create_user(user_id, session)
                 
                 memory = UserMemory(
                     user_id=user_id,

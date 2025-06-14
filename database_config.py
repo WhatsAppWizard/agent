@@ -6,6 +6,7 @@ from sqlalchemy import (ARRAY, JSON, Boolean, Column, DateTime, Float,
                         ForeignKey, Integer, String, Text)
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.sql import func
 
 # Load environment variables
 load_dotenv()
@@ -30,13 +31,14 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, index=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    last_active = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    last_active = Column(DateTime(timezone=True), default=func.now())
     preferences = Column(JSON)
 
     # Relationships
     conversations = relationship("Conversation", back_populates="user")
     context = relationship("UserContext", back_populates="user", uselist=False)
+    memories = relationship("UserMemory", back_populates="user")
 
 class Conversation(Base):
     """Model for storing conversation history"""
@@ -47,7 +49,7 @@ class Conversation(Base):
     message = Column(String, nullable=False)
     response = Column(String, nullable=False)
     language = Column(String, nullable=False)
-    timestamp = Column(DateTime(timezone=True), default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=func.now())
     message_metadata = Column(JSON)
     embedding = Column(ARRAY(Float))
     topic = Column(String)
@@ -67,7 +69,8 @@ class Conversation(Base):
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
             'message_metadata': self.message_metadata,
             'embedding': self.embedding,
-            'topic': self.topic
+            'topic': self.topic,
+            'num_tokens': self.num_tokens
         }
 
 class UserContext(Base):
@@ -76,7 +79,7 @@ class UserContext(Base):
 
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
     context_messages = Column(JSON, default=list)  # List of messages with roles
-    last_updated = Column(DateTime(timezone=True), default=datetime.utcnow)
+    last_updated = Column(DateTime(timezone=True), default=func.now())
     preferred_language = Column(String)
     conversation_topics = Column(ARRAY(String))
     user_preferences = Column(JSON)
@@ -108,11 +111,11 @@ class UserMemory(Base):
     memory_type = Column(String, nullable=False)  # e.g., "preference", "fact", "interaction"
     content = Column(Text, nullable=False)
     importance = Column(Float, default=1.0)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    last_accessed = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    last_accessed = Column(DateTime(timezone=True), default=func.now())
     memory_metadata = Column(JSON)
     embedding = Column(ARRAY(Float))
     is_active = Column(Boolean, default=True)  # Track if the memory is still active
 
     # Relationships
-    user = relationship("User") 
+    user = relationship("User", back_populates="memories") 
