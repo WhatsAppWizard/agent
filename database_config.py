@@ -109,6 +109,7 @@ class UserMemory(Base):
     last_accessed = Column(DateTime(timezone=True), default=datetime.utcnow)
     memory_metadata = Column(JSON)
     embedding = Column(ARRAY(Float))
+    is_active = Column(Boolean, default=True)  # Track if the memory is still active
 
     # Relationships
     user = relationship("User") 

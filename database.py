@@ -198,12 +198,16 @@ class ConversationDB:
                 # Calculate similarity scores
                 memory_scores = []
                 for memory in memories:
-                    if memory.embedding:
-                        similarity = cosine_similarity(
-                            [query_embedding],
-                            [memory.embedding]
-                        )[0][0]
-                        memory_scores.append((memory, similarity))
+                    if memory.embedding and len(memory.embedding) == len(query_embedding):
+                        try:
+                            similarity = cosine_similarity(
+                                [query_embedding],
+                                [memory.embedding]
+                            )[0][0]
+                            memory_scores.append((memory, similarity))
+                        except Exception as e:
+                            logger.warning(f"Error calculating similarity for memory {memory.id}: {str(e)}")
+                            continue
                 
                 # Sort by similarity and importance
                 memory_scores.sort(key=lambda x: (x[1] * x[0].importance), reverse=True)
