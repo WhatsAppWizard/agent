@@ -2,27 +2,29 @@ name: Docker Build and Push
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'README.md'
-      - '.gitignore'
-      - '.env.example'
+      - "**.md"
+      - "docs/**"
+      - "README.md"
+      - ".gitignore"
+      - ".env.example"
   pull_request:
-    branches: [ main ]
+    types: [closed]
+    branches: [main]
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'README.md'
-      - '.gitignore'
-      - '.env.example'
+      - "**.md"
+      - "docs/**"
+      - "README.md"
+      - ".gitignore"
+      - ".env.example"
 
 env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/Wizard-Agent
 
 jobs:
   build-and-push:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,7 +45,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile', 'requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-buildx-
 
@@ -98,4 +100,4 @@ jobs:
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache 
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache

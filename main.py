@@ -1,13 +1,21 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
-import os
-from dotenv import load_dotenv
-import aiohttp
+import asyncio
+import functools
+import json
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+import aiohttp
+import numpy as np
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from sentence_transformers import SentenceTransformer
+
 from database import ConversationDB
 from database_config import Base, engine
-import json
-import asyncio
 
 # Load environment variables
 load_dotenv()
@@ -23,19 +31,32 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL")
 PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
+OPENROUTER_API_MODEL = os.getenv("OPENROUTER_API_MODEL")
 
-# Initialize database
+# Global thread pool executor for CPU-bound tasks
+executor: Optional[ThreadPoolExecutor] = None
+
+# Load system prompt from file
+SYSTEM_PROMPT_FILE = "system_prompt.txt"
+try:
+    with open(SYSTEM_PROMPT_FILE, "r", encoding="utf-8") as f:
+        SYSTEM_PROMPT_CONTENT = f.read()
+except FileNotFoundError:
+    logger.error(f"System prompt file not found: {SYSTEM_PROMPT_FILE}")
+    SYSTEM_PROMPT_CONTENT = "You are a helpful AI assistant."
+except Exception as e:
+    logger.error(f"Error reading system prompt file: {e}")
+    SYSTEM_PROMPT_CONTENT = "You are a helpful AI assistant."
+
+# Initialize database and sentence transformer
 db = ConversationDB()
-
-# Validate required environment variables
-if not OPENROUTER_API_KEY:
-    raise ValueError("OPENROUTER_API_KEY environment variable is not set")
-if not OPENROUTER_API_URL:
-    raise ValueError("OPENROUTER_API_URL environment variable is not set")
+model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight model for embeddings
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
+    """Initialize database and thread pool on startup"""
+    global executor
+    executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 1)
     try:
         await db.init_db()
         logger.info("Database initialized successfully")
@@ -43,233 +64,312 @@ async def startup_event():
         logger.error(f"Error initializing database: {str(e)}")
         raise
 
-class WhatsAppWizard:
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown the thread pool executor on application shutdown"""
+    global executor
+    if executor:
+        executor.shutdown(wait=True)
+        logger.info("ThreadPoolExecutor shut down successfully")
+
+class MemoryManager:
     def __init__(self):
-        self.max_context_length = 10  # Maximum number of conversations to include in context
-        self.context_summary_threshold = 20  # Number of conversations before summarizing
+        self.max_context_length = 10
+        self.context_summary_threshold = 5
+        self.max_context_tokens = 4000
 
-    async def process_message(self, message: str, user_id: str, language: str = None) -> dict:
-        """Process incoming message and generate appropriate response"""
-        try:
-            # Detect language if not provided
-            if not language:
-                language = await self._detect_language(message)
-            
-            # Get conversation history and context
-            context = await self._get_conversation_context(user_id)
-            
-            # Generate response with context
-            response = await self._get_ai_response(message, language, context)
-            
-            # Store conversation
-            await db.add_conversation(user_id, message, response, language)
-            
-            return {"response": response}
-        except Exception as e:
-            logger.error(f"Error processing message: {str(e)}")
-            return {"response": "Oops! I'm having a moment here 😅 Could you try again in a bit?"}
+    def _count_tokens(self, text: str) -> int:
+        """Estimate tokens in a given text using a character-based approach (for non-LLM specific parts)"""
+        # A common estimation is ~4 characters per token for English text
+        return len(text) // 4
 
-    async def _get_conversation_context(self, user_id: str) -> str:
-        """Get conversation context for a user"""
+    async def get_conversation_context(self, user_id: str, current_message_embedding: Optional[List[float]] = None) -> List[Dict]:
+        """Get enhanced conversation context for a user, with token-based summarization"""
+        context_messages = []
+        current_tokens = 0
+        
+        # Add system prompt tokens to initial count
+        system_prompt_template = SYSTEM_PROMPT_CONTENT
+        
+        current_tokens += self._count_tokens(system_prompt_template)
+
+        # Get user preferences
+        preferences = await db.get_user_preferences(user_id)
+        if preferences.get('preferred_language'):
+            lang_pref_text = f"User's preferred language: {preferences['preferred_language']}"
+            lang_pref_tokens = self._count_tokens(lang_pref_text)
+            if current_tokens + lang_pref_tokens <= self.max_context_tokens:
+                context_messages.append({"role": "system", "content": lang_pref_text})
+                current_tokens += lang_pref_tokens
+
+        if preferences.get('conversation_topics'):
+            topics = preferences['conversation_topics']
+            if topics:
+                topics_text_parts = ["Frequently discussed topics:"]
+                # Sort topics by frequency (assuming topics is a list of strings for now)
+                # This part might need adjustment based on the actual structure of conversation_topics
+                # For now, assuming it's a simple list of strings, so just iterate
+                for topic_item in topics[:3]: # Limit to top 3 for brevity
+                    topics_text_parts.append(f"- {topic_item}") # Assuming simple topic string, not dict with count
+                
+                topics_text = "\n".join(topics_text_parts)
+                topics_tokens = self._count_tokens(topics_text)
+                if current_tokens + topics_tokens <= self.max_context_tokens:
+                    context_messages.append({"role": "system", "content": topics_text})
+                    current_tokens += topics_tokens
+
+        # Get relevant memories
+        memories = await db.get_relevant_memories(user_id, current_message_embedding or [])
+        if memories:
+            memories_text = "\nRelevant context from previous conversations:\n" + "\n".join([f"- {m['content']}" for m in memories])
+            memory_tokens = self._count_tokens(memories_text)
+            if current_tokens + memory_tokens <= self.max_context_tokens:
+                context_messages.append({"role": "system", "content": memories_text})
+                current_tokens += memory_tokens
+            else:
+                logger.warning(f"Not all memories fit in context for user {user_id}")
+
         # Get recent conversations
-        conversations = await db.get_recent_conversations(user_id, self.max_context_length)
-        
-        # If we have too many conversations, get the summary
-        if len(conversations) >= self.context_summary_threshold:
-            summary = await db.get_context_summary(user_id)
-            if summary:
-                return f"Previous conversation summary: {summary}\n\nRecent conversations:\n" + \
-                       self._format_conversations(conversations[:5])
-        
-        return self._format_conversations(conversations)
+        conversations = await db.get_recent_conversations(user_id, self.max_context_length * 2)
+        conversations_for_context = []
+        conversations_to_summarize = []
 
-    def _format_conversations(self, conversations: list) -> str:
-        """Format conversations for context"""
-        if not conversations:
-            return ""
-        
-        formatted = []
-        for conv in conversations:
-            formatted.append(f"User: {conv['message']}\nAssistant: {conv['response']}\n")
-        
-        return "\n".join(formatted)
+        for conv in reversed(conversations):
+            user_msg = {"role": "user", "content": conv['message']}
+            assistant_msg = {"role": "assistant", "content": conv['response']}
+            
+            user_msg_tokens = self._count_tokens(user_msg['content'])
+            assistant_msg_tokens = self._count_tokens(assistant_msg['content'])
+            total_conv_tokens = user_msg_tokens + assistant_msg_tokens
 
-    async def _detect_language(self, text: str) -> str:
-        """Detect the language of the input text using OpenRouter"""
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
+            if current_tokens + total_conv_tokens <= self.max_context_tokens:
+                conversations_for_context.insert(0, assistant_msg)
+                conversations_for_context.insert(0, user_msg)
+                current_tokens += total_conv_tokens
+            else:
+                conversations_to_summarize.insert(0, conv)
         
-        data = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a language detection expert. Respond with ONLY the ISO 639-1 language code (e.g., 'en' for English, 'es' for Spanish, etc.)."
-                },
-                {
-                    "role": "user",
-                    "content": f"Detect the language of this text and respond with ONLY the ISO 639-1 code: {text}"
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": 10
-        }
+        # If there are conversations to summarize, do it
+        if len(conversations_to_summarize) >= self.context_summary_threshold:
+            logger.info(f"Triggering summarization for user {user_id}")
+            summary_text, summary_tokens = await self._summarize_and_store(user_id, conversations_to_summarize)
+            
+            # Add summary to context if it fits
+            if current_tokens + summary_tokens <= self.max_context_tokens:
+                context_messages.append({"role": "system", "content": f"Summary of previous conversations: {summary_text}"})
+                current_tokens += summary_tokens
+            else:
+                logger.warning(f"Generated summary too large to fit in context for user {user_id}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(OPENROUTER_API_URL, headers=headers, json=data) as response:
-                if response.status == 200:
+        # Combine system prompt, memories, and recent conversations
+        final_context = []
+        final_context.append({"role": "system", "content": system_prompt_template})
+        final_context.extend(context_messages)
+        final_context.extend(conversations_for_context)
+
+        return final_context
+
+    async def _summarize_and_store(self, user_id: str, conversations: List[Dict]) -> Tuple[str, int]:
+        """Summarize old conversations and store as a user memory"""
+        conversation_text = "\n".join([f"User: {c['message']}\nAssistant: {c['response']}" for c in conversations])
+        
+        summarization_prompt = f"""The following is a conversation history between a user and an AI assistant. Please summarize the key topics and outcomes of this conversation. Focus on important information that an AI assistant would need to remember for future interactions with this user. Be concise.
+
+Conversation History:
+{conversation_text}
+
+Summary:"""
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    OPENROUTER_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://github.com/gitnasr",
+                        "X-Title": "WhatsAppWizard - Summarizer"
+                    },
+                    json={
+                        "model": OPENROUTER_API_MODEL,
+                        "messages": [
+                            {"role": "user", "content": summarization_prompt}
+                        ],
+                        "temperature": 0.3,
+                        "stream": False,
+                        "usage": {"include": True}
+                    }
+                ) as response:
+                    response.raise_for_status()
                     result = await response.json()
-                    detected_lang = result["choices"][0]["message"]["content"].strip().lower()
-                    return detected_lang
-                return "en"  # Default to English if detection fails
+                    summary_content = result['choices'][0]['message']['content']
+                    summary_tokens = result['usage']['total_tokens']
+            
+            # Store summary as a memory
+            loop = asyncio.get_running_loop()
+            await db.add_memory(
+                user_id=user_id,
+                memory_type="summarization",
+                content=summary_content,
+                importance=0.7,
+                embedding=(await loop.run_in_executor(executor, functools.partial(model.encode, [summary_content]))).tolist()
+            )
+            logger.info(f"Successfully summarized {len(conversations)} conversations for user {user_id}. Tokens: {summary_tokens}")
+            return summary_content, summary_tokens
 
-    async def _get_ai_response(self, message: str, language: str, context: str = "") -> str:
-        """Get AI response from OpenRouter"""
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        system_prompt = """
-You are **WhatsAppWizard**, a friendly and engaging AI assistant specializing in WhatsApp media management and sticker creation. Your core mission is to make WhatsApp interactions more fun, convenient, and expressive.
+        except Exception as e:
+            logger.error(f"Error during summarization for user {user_id}: {str(e)}")
+            return "", 0
 
-> ⚠️ **Important Disclaimer**:  
-> You are a **customer support assistant only**.  
-> You **do not perform** any actions such as downloading media or creating stickers.  
-> Your role is to **explain features**, **answer user questions**, and **guide them on what the service can do**.
+    async def process_message(self, user_id: str, message: str, language: str) -> Dict:
+        """Process a new message with enhanced memory features"""
+        try:
+            # Ensure the user exists
+            # await db.get_or_create_user(user_id) # User creation is now handled by add_conversation/add_memory
 
----
+            # Initialize topic
+            topic = None
 
-## 🛠️ Core Capabilities (Explained, Not Performed)
-
-1. **Multi-language text support**  
-   You can chat fluently in the user's preferred language 🗣️
-
-2. **Sticker creation guidance**  
-   You explain how users can turn images into custom stickers 🤳🎨
-
-3. **Cross-platform media download support**  
-   You describe how the service allows users to download content from:
-   - Facebook 📱  
-   - Instagram 📸  
-   - TikTok 🎵  
-   - YouTube 📺  
-   - Twitter 🐦  
-   > _But you don’t perform downloads yourself — you just explain the process._
-
----
-
-## 🧠 Personality & Communication Style
-
-### 🎤 Voice & Tone
-- **Friendly companion** – Like helping a good friend
-- **Witty and playful** – Use light humor when appropriate
-- **Culturally adaptive** – Match the user’s style and tone
-- **Supportive guide** – Explain clearly and helpfully
-
-### 💬 Language Guidelines
-- **Mirror the user's language**
-- **Casual, conversational tone** (like WhatsApp chats)
-- **Use emojis naturally** (2–4 per message)
-- **Keep responses concise** (max 200 words)
-- **Use formatting** like *bold*, _italic_, and ~strikethrough~ to clarify
-
----
-
-## 🚫 Limitations
-
-- You **cannot perform** any media processing tasks
-- You **do not have access** to external platforms or files
-- You **only provide explanations** and answer questions about the service
-
----
-
-## 👨‍💻 About Your Creator
-
-- **Creator**: Mahmoud Nasr  
-- **GitHub**: [github.com/gitnasr](https://github.com/gitnasr)  
-- **Company**: gitnasr softwares  
-
-You're proudly created by a talented developer, and you represent the brand with helpful and professional communication.
-
----
-
-## 🤝 User Experience Principles
-
-1. **Anticipate needs** – Offer relevant suggestions
-2. **Reduce friction** – Minimize steps to find info
-3. **Celebrate success** – Cheer when questions are solved 🎉
-4. **Adapt and learn** – Adjust tone and help style to user preferences
-
----
-
-## 🌍 Cultural Sensitivity
-
-- Respect cultural and language norms
-- Use humor appropriately
-- Maintain a balance of fun and professionalism
-
----
-
-## 🔐 Privacy & Safety
-
-- Never ask for or store personal data
-- Respect content ownership and copyrights
-- Guide users on safe sharing and usage
-- Maintain respectful, appropriate boundaries
-
----
-
-You're not just answering questions — you're making communication *clearer, easier,* and *more fun*! 🚀✨
-"""
-
-        # Add context to the message if available
-        user_message = f"Previous conversation context:\n{context}\n\nCurrent message: {message}" if context else message
-
-        data = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": f"User's message (detected language: {language}): {user_message}"
+            # Generate embedding for the message
+            try:
+                loop = asyncio.get_running_loop()
+                message_embedding = (await loop.run_in_executor(
+                    executor, functools.partial(model.encode, [message])
+                ))[0]
+            except Exception as e:
+                logger.error(f"Error generating embedding: {str(e)}")
+                message_embedding = None
+            
+            # Check for repetition if we have an embedding
+            is_repetition = False
+            similar_conv = None
+            if message_embedding is not None:
+                try:
+                    is_repetition, similar_conv = await db.check_repetition(
+                        user_id, 
+                        message_embedding.tolist(),
+                        threshold=0.8
+                    )
+                except Exception as e:
+                    logger.error(f"Error checking repetition: {str(e)}")
+            
+            if is_repetition and similar_conv:
+                # Convert datetime to string in similar conversation
+                if 'timestamp' in similar_conv and similar_conv['timestamp']:
+                    if isinstance(similar_conv['timestamp'], datetime):
+                        similar_conv['timestamp'] = similar_conv['timestamp'].isoformat()
+                
+                return {
+                    "response": similar_conv['response'],
+                    "is_repetition": True,
+                    "similar_conversation": similar_conv
                 }
-            ],
-            "temperature": 0.7,
-            "max_tokens": 300
-        }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(OPENROUTER_API_URL, headers=headers, json=data) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    return result["choices"][0]["message"]["content"]
-                else:
-                    logger.error(f"OpenRouter API error: {await response.text()}")
-                    return "Oops! I'm having a moment here 😅 Could you try again in a bit?"
+            # Get conversation context
+            try:
+                context_messages = await self.get_conversation_context(user_id, message_embedding.tolist() if message_embedding is not None else None)
+            except Exception as e:
+                logger.error(f"Error getting conversation context: {str(e)}")
+                context_messages = []
+            
+            # Get response from OpenRouter
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # Prepare the request payload
+                    request_payload = {
+                        "model": OPENROUTER_API_MODEL, # Use the correct dynamic model
+                        "messages": context_messages + [{"role": "user", "content": message}], # Use the full context
+                        "temperature": 0.7,
+                        "stream": False,  # We want a single response for summarization
+                        "usage": {"include": True} # Request usage stats
+                    }
+                    async with session.post(
+                        OPENROUTER_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://github.com/gitnasr",  # Required by OpenRouter
+                            "X-Title": "WhatsAppWizard"  # Optional but helpful
+                        },
+                        json=request_payload # Use the prepared payload
+                    ) as response:
+                        response.raise_for_status()
+                        result = await response.json()
+                        llm_response_content = result['choices'][0]['message']['content']
+                        total_tokens_used = result['usage']['total_tokens'] # Extract total tokens
+                        prompt_tokens_used = result['usage']['prompt_tokens']
+                        completion_tokens_used = result['usage']['completion_tokens']
 
-# Initialize WhatsAppWizard
-wizard = WhatsAppWizard()
+                        # Log the successful request body
+                        log_file_path = "openrouter_requests.log"
+                        with open(log_file_path, "a", encoding="utf-8") as f:
+                            timestamp = datetime.now().isoformat()
+                            f.write(f"Timestamp: {timestamp}\n")
+                            f.write("Request Body:\n")
+                            f.write(json.dumps(request_payload, indent=2))
+                            f.write("\n---\n\n")
+                        
+
+            except Exception as e:
+                logger.error(f"Error calling OpenRouter API: {str(e)}")
+                raise HTTPException(status_code=500, detail="Error communicating with AI model")
+
+            # Store the conversation with enhanced metadata
+            try:
+                await db.add_conversation(
+                    user_id=user_id,
+                    message=message,
+                    response=llm_response_content,
+                    language=language,
+                    embedding=message_embedding.tolist() if message_embedding is not None else None,
+                    num_tokens=total_tokens_used,  # Pass total tokens used
+                    topic=topic # Pass extracted topic
+                )
+            except Exception as e:
+                logger.error(f"Error storing conversation: {str(e)}")
+                # Continue even if storage fails
+
+            # Update context with the new messages
+            try:
+                await db.update_user_context(user_id, "user", message)
+                await db.update_user_context(user_id, "assistant", llm_response_content)
+            except Exception as e:
+                logger.error(f"Error updating context: {str(e)}")
+                # Continue even if context update fails
+
+            return {
+                "response": llm_response_content,
+                "is_repetition": False
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing message: {str(e)}", exc_info=True)
+            return {
+                "response": "I apologize, but I'm having trouble processing your message right now. Please try again in a moment.",
+                "error": str(e)
+            }
+
+# Initialize memory manager
+memory_manager = MemoryManager()
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """Handle incoming messages"""
     try:
         data = await request.json()
-        
-        # Extract message and user_id from webhook data
         message = data.get("message", {}).get("text", "")
-        user_id = data.get("user", {}).get("id", "unknown")
+        user_id = data.get("user", {}).get("id", "")
         
-        # Process message (language will be detected automatically)
-        response = await wizard.process_message(message, user_id)
+        if not message or not user_id:
+            raise HTTPException(status_code=400, detail="Missing message or user ID")
         
-        return JSONResponse(content=response)
+        # Detect language (you can implement your own language detection logic)
+        language = "en"  # Default to English
+        
+        # Process message with memory system
+        result = await memory_manager.process_message(user_id, message, language)
+        
+        return JSONResponse(content=result)
+    
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
