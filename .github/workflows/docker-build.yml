@@ -1,14 +1,6 @@
 name: Docker Build and Push
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "README.md"
-      - ".gitignore"
-      - ".env.example"
   pull_request:
     types: [closed]
     branches: [main]
@@ -27,10 +19,8 @@ env:
 
 jobs:
   build-and-push:
-    # Fixed conditional logic to handle both push and PR events properly
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+    # Only run when a PR is successfully merged to main
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
