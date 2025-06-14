@@ -106,14 +106,24 @@ class MemoryManager:
         """Process a new message with enhanced memory features"""
         try:
             # Generate embedding for the message
-            message_embedding = model.encode([message])[0]
+            try:
+                message_embedding = model.encode([message])[0]
+            except Exception as e:
+                logger.error(f"Error generating embedding: {str(e)}")
+                message_embedding = None
             
-            # Check for repetition
-            is_repetition, similar_conv = await db.check_repetition(
-                user_id, 
-                message_embedding,
-                threshold=0.8
-            )
+            # Check for repetition if we have an embedding
+            is_repetition = False
+            similar_conv = None
+            if message_embedding is not None:
+                try:
+                    is_repetition, similar_conv = await db.check_repetition(
+                        user_id, 
+                        message_embedding.tolist(),
+                        threshold=0.8
+                    )
+                except Exception as e:
+                    logger.error(f"Error checking repetition: {str(e)}")
             
             if is_repetition and similar_conv:
                 # Convert datetime to string in similar conversation
@@ -128,7 +138,11 @@ class MemoryManager:
                 }
 
             # Get conversation context
-            context_messages = await self.get_conversation_context(user_id)
+            try:
+                context_messages = await self.get_conversation_context(user_id)
+            except Exception as e:
+                logger.error(f"Error getting conversation context: {str(e)}")
+                context_messages = []
             
             # Prepare the prompt with context
             system_prompt = """
@@ -235,40 +249,54 @@ You're not just answering questions — you're making communication *clearer, ea
             messages.append({"role": "user", "content": message})
 
             # Get response from OpenRouter
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    OPENROUTER_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "openai/gpt-3.5-turbo",
-                        "messages": messages
-                    }
-                ) as response:
-                    if response.status != 200:
-                        raise HTTPException(status_code=response.status, detail="Error from OpenRouter API")
-                    
-                    result = await response.json()
-                    response_text = result['choices'][0]['message']['content']
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        OPENROUTER_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "openai/gpt-3.5-turbo",
+                            "messages": messages
+                        }
+                    ) as response:
+                        if response.status != 200:
+                            error_detail = await response.text()
+                            logger.error(f"OpenRouter API error: {error_detail}")
+                            raise HTTPException(status_code=response.status, detail="Error from OpenRouter API")
+                        
+                        result = await response.json()
+                        response_text = result['choices'][0]['message']['content']
+            except Exception as e:
+                logger.error(f"Error calling OpenRouter API: {str(e)}")
+                raise
 
             # Store the conversation with enhanced metadata
-            await db.add_conversation(
-                user_id=user_id,
-                message=message,
-                response=response_text,
-                language=language,
-                embedding=message_embedding.tolist(),
-                metadata={
-                    "is_repetition": is_repetition,
-                    "context_used": bool(context_messages)
-                }
-            )
+            try:
+                await db.add_conversation(
+                    user_id=user_id,
+                    message=message,
+                    response=response_text,
+                    language=language,
+                    embedding=message_embedding.tolist() if message_embedding is not None else None,
+                    metadata={
+                        "is_repetition": is_repetition,
+                        "context_used": bool(context_messages)
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error storing conversation: {str(e)}")
+                # Continue even if storage fails
 
             # Update context with the new messages
-            await db.update_user_context(user_id, "user", message)
-            await db.update_user_context(user_id, "assistant", response_text)
+            try:
+                await db.update_user_context(user_id, "user", message)
+                await db.update_user_context(user_id, "assistant", response_text)
+            except Exception as e:
+                logger.error(f"Error updating context: {str(e)}")
+                # Continue even if context update fails
 
             return {
                 "response": response_text,
@@ -276,7 +304,7 @@ You're not just answering questions — you're making communication *clearer, ea
             }
 
         except Exception as e:
-            logger.error(f"Error processing message: {str(e)}")
+            logger.error(f"Error processing message: {str(e)}", exc_info=True)
             return {
                 "response": "I apologize, but I'm having trouble processing your message right now. Please try again in a moment.",
                 "error": str(e)
