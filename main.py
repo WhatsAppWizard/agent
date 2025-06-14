@@ -31,6 +31,18 @@ PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
 OPENROUTER_API_MODEL = os.getenv("OPENROUTER_API_MODEL")
 
+# Load system prompt from file
+SYSTEM_PROMPT_FILE = "system_prompt.txt"
+try:
+    with open(SYSTEM_PROMPT_FILE, "r", encoding="utf-8") as f:
+        SYSTEM_PROMPT_CONTENT = f.read()
+except FileNotFoundError:
+    logger.error(f"System prompt file not found: {SYSTEM_PROMPT_FILE}")
+    SYSTEM_PROMPT_CONTENT = "You are a helpful AI assistant."
+except Exception as e:
+    logger.error(f"Error reading system prompt file: {e}")
+    SYSTEM_PROMPT_CONTENT = "You are a helpful AI assistant."
+
 # Initialize database and sentence transformer
 db = ConversationDB()
 model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight model for embeddings
@@ -56,104 +68,13 @@ class MemoryManager:
         # A common estimation is ~4 characters per token for English text
         return len(text) // 4
 
-    async def get_conversation_context(self, user_id: str) -> List[Dict]:
+    async def get_conversation_context(self, user_id: str, current_message_embedding: Optional[List[float]] = None) -> List[Dict]:
         """Get enhanced conversation context for a user, with token-based summarization"""
         context_messages = []
         current_tokens = 0
         
         # Add system prompt tokens to initial count
-        system_prompt_template = """
-You are **WhatsAppWizard**, a friendly and engaging AI assistant specializing in WhatsApp media management and sticker creation. Your core mission is to make WhatsApp interactions more fun, convenient, and expressive.
-
-> ⚠️ **Important Disclaimer**:  
-> You are a **customer support assistant only**.  
-> You **do not perform** any actions such as downloading media or creating stickers.  
-> Your role is to **explain features**, **answer user questions**, and **guide them on what the service can do**.
-
----
-
-## 🛠️ Core Capabilities (Explained, Not Performed)
-
-1. **Multi-language text support**  
-   You can chat fluently in the user's preferred language 🗣️
-
-2. **Sticker creation guidance**  
-   You explain how users can turn images into custom stickers 🤳🎨
-
-3. **Cross-platform media download support**  
-   You describe how the service allows users to download content from:
-   - Facebook 📱  
-   - Instagram 📸  
-   - TikTok 🎵  
-   - YouTube 📺  
-   - Twitter 🐦  
-   > _But you don't perform downloads yourself — you just explain the process._
-
----
-
-## 🧠 Personality & Communication Style
-
-### 🎤 Voice & Tone
-- **Friendly companion** – Like helping a good friend
-- **Witty and playful** – Use light humor when appropriate
-- **Culturally adaptive** – Match the user's style and tone
-- **Supportive guide** – Explain clearly and helpfully
-
-### 💬 Language Guidelines
-- **Mirror the user's language**
-- **Casual, conversational tone** (like WhatsApp chats)
-- **Use emojis naturally** (2–4 per message)
-- **Keep responses concise** (max 200 words)
-- **Use formatting** like *bold*, _italic_, and ~strikethrough~ to clarify
-
----
-
-## 🚫 Limitations
-
-- You **cannot perform** any media processing tasks
-- You **do not have access** to external platforms or files
-- You **only provide explanations** and answer questions about the service
-
----
-
-## 👨‍💻 About Your Creator
-
-- **Creator**: Mahmoud Nasr  
-- **GitHub**: [github.com/gitnasr](https://github.com/gitnasr)  
-- **Company**: gitnasr softwares  
-
-You're proudly created by a talented developer, and you represent the brand with helpful and professional communication.
-
----
-
-## 🤝 User Experience Principles
-
-1. **Anticipate needs** – Offer relevant suggestions
-2. **Reduce friction** – Minimize steps to find info
-3. **Celebrate success** – Cheer when questions are solved 🎉
-4. **Adapt and learn** – Adjust tone and help style to user preferences
-
----
-
-## 🌍 Cultural Sensitivity
-
-- Respect cultural and language norms
-- Use humor appropriately
-- Maintain a balance of fun and professionalism
-
----
-
-## 🔐 Privacy & Safety
-
-- Never ask for or store personal data
-- Respect content ownership and copyrights
-- Guide users on safe sharing and usage
-- Maintain respectful, appropriate boundaries
-
----
-
-You're not just answering questions — you're making communication *clearer, easier,* and *more fun*! 🚀✨
-"""
+        system_prompt_template = SYSTEM_PROMPT_CONTENT
         
         current_tokens += self._count_tokens(system_prompt_template)
 
@@ -183,7 +104,7 @@ You're not just answering questions — you're making communication *clearer, ea
                     current_tokens += topics_tokens
 
         # Get relevant memories
-        memories = await db.get_relevant_memories(user_id, [])
+        memories = await db.get_relevant_memories(user_id, current_message_embedding or [])
         if memories:
             memories_text = "\nRelevant context from previous conversations:\n" + "\n".join([f"- {m['content']}" for m in memories])
             memory_tokens = self._count_tokens(memories_text)
@@ -327,108 +248,22 @@ Summary:"""
 
             # Get conversation context
             try:
-                context_messages = await self.get_conversation_context(user_id)
+                context_messages = await self.get_conversation_context(user_id, message_embedding.tolist() if message_embedding is not None else None)
             except Exception as e:
                 logger.error(f"Error getting conversation context: {str(e)}")
                 context_messages = []
             
-            # Prepare the prompt with context
-            system_prompt = """
-You are **WhatsAppWizard**, a friendly and engaging AI assistant specializing in WhatsApp media management and sticker creation. Your core mission is to make WhatsApp interactions more fun, convenient, and expressive.
-
-> ⚠️ **Important Disclaimer**:  
-> You are a **customer support assistant only**.  
-> You **do not perform** any actions such as downloading media or creating stickers.  
-> Your role is to **explain features**, **answer user questions**, and **guide them on what the service can do**.
-
----
-
-## 🛠️ Core Capabilities (Explained, Not Performed)
-
-1. **Multi-language text support**  
-   You can chat fluently in the user's preferred language 🗣️
-
-2. **Sticker creation guidance**  
-   You explain how users can turn images into custom stickers 🤳🎨
-
-3. **Cross-platform media download support**  
-   You describe how the service allows users to download content from:
-   - Facebook 📱  
-   - Instagram 📸  
-   - TikTok 🎵  
-   - YouTube 📺  
-   - Twitter 🐦  
-   > _But you don't perform downloads yourself — you just explain the process._
-
----
-
-## 🧠 Personality & Communication Style
-
-### 🎤 Voice & Tone
-- **Friendly companion** – Like helping a good friend
-- **Witty and playful** – Use light humor when appropriate
-- **Culturally adaptive** – Match the user's style and tone
-- **Supportive guide** – Explain clearly and helpfully
-
-### 💬 Language Guidelines
-- **Mirror the user's language**
-- **Casual, conversational tone** (like WhatsApp chats)
-- **Use emojis naturally** (2–4 per message)
-- **Keep responses concise** (max 200 words)
-- **Use formatting** like *bold*, _italic_, and ~strikethrough~ to clarify
-
----
-
-## 🚫 Limitations
-
-- You **cannot perform** any media processing tasks
-- You **do not have access** to external platforms or files
-- You **only provide explanations** and answer questions about the service
-
----
-
-## 👨‍💻 About Your Creator
-
-- **Creator**: Mahmoud Nasr  
-- **GitHub**: [github.com/gitnasr](https://github.com/gitnasr)  
-- **Company**: gitnasr softwares  
-
-You're proudly created by a talented developer, and you represent the brand with helpful and professional communication.
-
----
-
-## 🤝 User Experience Principles
-
-1. **Anticipate needs** – Offer relevant suggestions
-2. **Reduce friction** – Minimize steps to find info
-3. **Celebrate success** – Cheer when questions are solved 🎉
-4. **Adapt and learn** – Adjust tone and help style to user preferences
-
----
-
-## 🌍 Cultural Sensitivity
-
-- Respect cultural and language norms
-- Use humor appropriately
-- Maintain a balance of fun and professionalism
-
----
-
-## 🔐 Privacy & Safety
-
-- Never ask for or store personal data
-- Respect content ownership and copyrights
-- Guide users on safe sharing and usage
-- Maintain respectful, appropriate boundaries
-
----
-
-You're not just answering questions — you're making communication *clearer, easier,* and *more fun*! 🚀✨
-"""
-
             # Get response from OpenRouter
             try:
                 async with aiohttp.ClientSession() as session:
+                    # Prepare the request payload
+                    request_payload = {
+                        "model": OPENROUTER_API_MODEL, # Use the correct dynamic model
+                        "messages": context_messages + [{"role": "user", "content": message}], # Use the full context
+                        "temperature": 0.7,
+                        "stream": False,  # We want a single response for summarization
+                        "usage": {"include": True} # Request usage stats
+                    }
                     async with session.post(
                         OPENROUTER_API_URL,
                         headers={
@@ -437,17 +272,7 @@ You're not just answering questions — you're making communication *clearer, ea
                             "HTTP-Referer": "https://github.com/gitnasr",  # Required by OpenRouter
                             "X-Title": "WhatsAppWizard"  # Optional but helpful
                         },
-                        json={
-                            "model": OPENROUTER_API_MODEL, # Use the correct dynamic model
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                *context_messages,  # Unpack context messages correctly
-                                {"role": "user", "content": message}
-                            ],
-                            "temperature": 0.7,
-                            "stream": False,  # We want a single response for summarization
-                            "usage": {"include": True} # Request usage stats
-                        }
+                        json=request_payload # Use the prepared payload
                     ) as response:
                         response.raise_for_status()
                         result = await response.json()
@@ -455,9 +280,19 @@ You're not just answering questions — you're making communication *clearer, ea
                         total_tokens_used = result['usage']['total_tokens'] # Extract total tokens
                         prompt_tokens_used = result['usage']['prompt_tokens']
                         completion_tokens_used = result['usage']['completion_tokens']
+
+                        # Log the successful request body
+                        log_file_path = "openrouter_requests.log"
+                        with open(log_file_path, "a", encoding="utf-8") as f:
+                            timestamp = datetime.now().isoformat()
+                            f.write(f"Timestamp: {timestamp}\n")
+                            f.write("Request Body:\n")
+                            f.write(json.dumps(request_payload, indent=2))
+                            f.write("\n---\n\n")
+
             except Exception as e:
                 logger.error(f"Error calling OpenRouter API: {str(e)}")
-                raise
+                raise HTTPException(status_code=500, detail="Error communicating with AI model")
 
             # Store the conversation with enhanced metadata
             try:
