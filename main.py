@@ -238,16 +238,6 @@ You're proudly created by a talented developer, and you represent the brand with
 You're not just answering questions — you're making communication *clearer, easier,* and *more fun*! 🚀✨
 """
 
-            # Prepare messages for the API call
-            messages = [{"role": "system", "content": system_prompt}]
-            
-            # Add context messages if available
-            if context_messages:
-                messages.extend(context_messages)
-            
-            # Add the current message
-            messages.append({"role": "user", "content": message})
-
             # Get response from OpenRouter
             try:
                 async with aiohttp.ClientSession() as session:
@@ -255,11 +245,23 @@ You're not just answering questions — you're making communication *clearer, ea
                         OPENROUTER_API_URL,
                         headers={
                             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                            "Content-Type": "application/json"
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "https://github.com/gitnasr",  # Required by OpenRouter
+                            "X-Title": "WhatsAppWizard"  # Optional but helpful
                         },
                         json={
                             "model": "openai/gpt-3.5-turbo",
-                            "messages": messages
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": system_prompt
+                                },
+                                *context_messages,  # Unpack context messages
+                                {
+                                    "role": "user",
+                                    "content": message
+                                }
+                            ]
                         }
                     ) as response:
                         if response.status != 200:
