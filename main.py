@@ -289,6 +289,7 @@ Summary:"""
                             f.write("Request Body:\n")
                             f.write(json.dumps(request_payload, indent=2))
                             f.write("\n---\n\n")
+                        
 
             except Exception as e:
                 logger.error(f"Error calling OpenRouter API: {str(e)}")
