@@ -1,9 +1,11 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Float, Boolean, ForeignKey, ARRAY
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from datetime import datetime
 import os
+from datetime import datetime
+
 from dotenv import load_dotenv
+from sqlalchemy import (ARRAY, JSON, Boolean, Column, DateTime, Float,
+                        ForeignKey, Integer, String, Text)
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +51,7 @@ class Conversation(Base):
     message_metadata = Column(JSON)
     embedding = Column(ARRAY(Float))
     topic = Column(String)
+    num_tokens = Column(Integer)
 
     # Relationships
     user = relationship("User", back_populates="conversations")

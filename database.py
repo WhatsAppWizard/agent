@@ -1,12 +1,15 @@
 import logging
-from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
-from sqlalchemy import select, and_, delete
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from database_config import Base, Conversation, UserContext, UserMemory, DATABASE_URL, User
+from sqlalchemy import and_, delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+from database_config import (DATABASE_URL, Base, Conversation, User,
+                             UserContext, UserMemory)
 
 logger = logging.getLogger(__name__)
 
@@ -29,28 +32,29 @@ class ConversationDB:
     async def init_db(self):
         """Initialize database tables"""
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
+            # await conn.run_sync(Base.metadata.drop_all) # Commented out to prevent data loss during development
             await conn.run_sync(Base.metadata.create_all)
 
-    async def _get_or_create_user(self, session: AsyncSession, user_id: str) -> None:
+    async def get_or_create_user(self, user_id: str) -> None:
         """Get or create a user record"""
-        query = select(User).where(User.id == user_id)
-        result = await session.execute(query)
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            user = User(id=user_id)
-            session.add(user)
-            await session.commit()
+        async with self.async_session() as session:
+            query = select(User).where(User.id == user_id)
+            result = await session.execute(query)
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                user = User(id=user_id)
+                session.add(user)
+                await session.commit()
 
     async def add_conversation(self, user_id: str, message: str, response: str, 
                              language: str, embedding: List[float] = None, 
-                             metadata: Dict = None, topic: str = None) -> None:
+                             metadata: Dict = None, topic: str = None, num_tokens: int = None) -> None:
         """Add a new conversation entry with enhanced context"""
         try:
             async with self.async_session() as session:
                 # Ensure user exists
-                await self._get_or_create_user(session, user_id)
+                await self.get_or_create_user(user_id)
                 
                 conversation = Conversation(
                     user_id=user_id,
@@ -59,7 +63,8 @@ class ConversationDB:
                     language=language,
                     embedding=embedding,
                     message_metadata=metadata,
-                    topic=topic
+                    topic=topic,
+                    num_tokens=num_tokens
                 )
                 session.add(conversation)
                 await session.commit()
@@ -229,7 +234,7 @@ class ConversationDB:
         try:
             async with self.async_session() as session:
                 # Ensure user exists
-                await self._get_or_create_user(session, user_id)
+                await self.get_or_create_user(user_id)
                 
                 memory = UserMemory(
                     user_id=user_id,
