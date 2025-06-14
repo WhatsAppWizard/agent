@@ -89,3 +89,4 @@ Thumbs.db
 media/
 static/
 uploads/ 
+reset_db.py

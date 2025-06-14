@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import aiohttp
@@ -248,6 +248,7 @@ Summary:"""
                     is_repetition, similar_conv = await db.check_repetition(
                         user_id, 
                         message_embedding.tolist(),
+                        datetime.now(),
                         threshold=0.8
                     )
                 except Exception as e:
