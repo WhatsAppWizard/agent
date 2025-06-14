@@ -241,7 +241,7 @@ Summary:"""
                         similar_conv['timestamp'] = similar_conv['timestamp'].isoformat()
                 
                 return {
-                    "response": "I notice this is similar to something we discussed before. Would you like me to elaborate on that previous conversation?",
+                    "response": similar_conv['response'],
                     "is_repetition": True,
                     "similar_conversation": similar_conv
                 }
