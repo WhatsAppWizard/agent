@@ -149,16 +149,6 @@ class ConversationDB:
         except Exception as e:
             logger.error(f"Error updating user context: {str(e)}")
 
-    async def clear_user_context(self, user_id: str) -> None:
-        """Clear the user's context messages"""
-        try:
-            async with self.async_session() as session:
-                context = await self._get_or_create_user_context(session, user_id)
-                context.context_messages = []
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error clearing user context: {str(e)}")
-
     async def get_user_preferences(self, user_id: str) -> Dict:
         """Get user preferences and settings"""
         try:
@@ -174,17 +164,6 @@ class ConversationDB:
         except Exception as e:
             logger.error(f"Error getting user preferences: {str(e)}")
             return {}
-
-    async def cleanup_old_conversations(self, days: int = 30) -> None:
-        """Clean up conversations older than specified days"""
-        try:
-            async with self.async_session() as session:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                query = delete(Conversation).where(Conversation.timestamp < cutoff_date)
-                await session.execute(query)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error cleaning up old conversations: {str(e)}")
 
     async def get_relevant_memories(self, user_id: str, query_embedding: List[float], 
                                   limit: int = 5) -> List[Dict]:
