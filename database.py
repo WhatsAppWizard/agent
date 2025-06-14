@@ -76,13 +76,19 @@ class ConversationDB:
             raise
 
     async def check_repetition(self, user_id: str, new_message_embedding: List[float], 
-                             threshold: float = 0.8) -> Tuple[bool, Optional[Dict]]:
-        """Check if the message is similar to previous conversations"""
+                             current_timestamp: datetime, threshold: float = 0.8, 
+                             time_window_seconds: int = 30) -> Tuple[bool, Optional[Dict]]:
+        """Check if the message is similar to previous conversations within a time window"""
         try:
             async with self.async_session() as session:
-                # Get recent conversations
+                time_threshold = current_timestamp - timedelta(seconds=time_window_seconds)
+
+                # Get recent conversations within the time window
                 query = select(Conversation).where(
-                    Conversation.user_id == user_id
+                    and_(
+                        Conversation.user_id == user_id,
+                        Conversation.timestamp >= time_threshold
+                    )
                 ).order_by(Conversation.timestamp.desc()).limit(10)
                 
                 result = await session.execute(query)
