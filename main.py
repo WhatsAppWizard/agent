@@ -321,7 +321,7 @@ Summary:"""
                     message=message,
                     response=llm_response_content,
                     language=language,
-                    embedding=message_embedding.tolist(),
+                    embedding=message_embedding.tolist() if message_embedding is not None else None,
                     num_tokens=total_tokens_used,  # Pass total tokens used
                     topic=topic # Pass extracted topic
                 )

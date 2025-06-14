@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import (ARRAY, JSON, Boolean, Column, DateTime, Float,
@@ -96,7 +96,7 @@ class UserContext(Base):
         self.context_messages.append({
             "role": role,
             "content": content,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         # Keep only the last N messages based on context_window
         if len(self.context_messages) > self.context_window:
