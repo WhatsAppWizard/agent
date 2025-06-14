@@ -27,7 +27,10 @@ env:
 
 jobs:
   build-and-push:
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    # Fixed conditional logic to handle both push and PR events properly
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -73,7 +76,6 @@ jobs:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=pr
             type=sha,format=short
@@ -82,7 +84,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
@@ -107,25 +109,47 @@ jobs:
 
       - name: Validate Coolify variables
         env:
-          COOLIFY_URL: ${{env.COOLIFY_URL}}
+          COOLIFY_URL: ${{ env.COOLIFY_URL }}
         run: |
           echo "Validating that coolify_url doesn't end in '/'"
           echo "$COOLIFY_URL" | grep -P '[^/]$'
+          echo "Validating required environment variables are set"
+          if [ -z "$COOLIFY_URL" ] || [ -z "${{ env.COOLIFY_RESOURCE_ID }}" ] || [ -z "${{ env.COOLIFY_API_TOKEN }}" ]; then
+            echo "Error: Missing required Coolify environment variables"
+            exit 1
+          fi
 
       - name: Update source commit SHA in Coolify
         uses: fjogeleit/http-request-action@v1
         with:
-          url: ${{env.COOLIFY_URL}}/api/v1/applications/${{env.COOLIFY_RESOURCE_ID}}
+          url: ${{ env.COOLIFY_URL }}/api/v1/applications/${{ env.COOLIFY_RESOURCE_ID }}
           method: PATCH
-          bearerToken: ${{env.COOLIFY_API_TOKEN}}
+          bearerToken: ${{ env.COOLIFY_API_TOKEN }}
           data: >-
             {
-            "git_commit_sha": "${{github.sha}}"
+            "git_commit_sha": "${{ github.sha }}"
             }
+        continue-on-error: false
 
       - name: Trigger Coolify deployment via webhook
         uses: fjogeleit/http-request-action@v1
         with:
-          url: ${{env.COOLIFY_URL}}/api/v1/deploy?uuid=${{env.COOLIFY_RESOURCE_ID}}&force=false
+          url: ${{ env.COOLIFY_URL }}/api/v1/deploy?uuid=${{ env.COOLIFY_RESOURCE_ID }}&force=false
           method: GET
-          bearerToken: ${{env.COOLIFY_API_TOKEN}}
+          bearerToken: ${{ env.COOLIFY_API_TOKEN }}
+        continue-on-error: false
+
+      - name: Deployment status notification
+        if: success()
+        run: |
+          echo "✅ Docker image built and pushed successfully"
+          echo "✅ Coolify deployment triggered successfully"
+          echo "📦 Image: ${{ env.DOCKER_IMAGE }}"
+          echo "🏷️ Tags: ${{ steps.meta.outputs.tags }}"
+          echo "🔗 Commit SHA: ${{ github.sha }}"
+
+      - name: Failure notification
+        if: failure()
+        run: |
+          echo "❌ Workflow failed"
+          echo "🔍 Please check the logs above for details"
