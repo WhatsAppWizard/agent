@@ -10,6 +10,13 @@ on:
       - "README.md"
       - ".gitignore"
       - ".env.example"
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        type: boolean
+        default: false
 
 env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/Wizard-Agent
@@ -19,8 +26,8 @@ env:
 
 jobs:
   build-and-push:
-    # Only run when a PR is successfully merged to main
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    # Run when a PR is successfully merged to main or manually triggered
+    if: (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
