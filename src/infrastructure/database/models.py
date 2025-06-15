@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timezone
+from typing import List, Dict, Any
 
 from dotenv import load_dotenv
 from sqlalchemy import (ARRAY, JSON, Boolean, Column, DateTime, Float,
@@ -25,9 +26,8 @@ async_session = sessionmaker(
 # Create base class for models
 Base = declarative_base()
 
-# Define models
 class User(Base):
-    """Model for storing user information"""
+    """SQLAlchemy model for storing user information"""
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, index=True)
@@ -36,12 +36,22 @@ class User(Base):
     preferences = Column(JSON)
 
     # Relationships
-    conversations = relationship("Conversation", back_populates="user")
-    context = relationship("UserContext", back_populates="user", uselist=False)
-    memories = relationship("UserMemory", back_populates="user")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    context = relationship("UserContext", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    memories = relationship("UserMemory", back_populates="user", cascade="all, delete-orphan")
+
+    def to_domain_model(self):
+        """Convert to domain model"""
+        from src.core.models.user import User as UserDomain
+        return UserDomain(
+            user_id=self.id,
+            created_at=self.created_at,
+            last_active=self.last_active,
+            preferences=self.preferences
+        )
 
 class Conversation(Base):
-    """Model for storing conversation history"""
+    """SQLAlchemy model for storing conversation history"""
     __tablename__ = "conversations"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -57,6 +67,22 @@ class Conversation(Base):
 
     # Relationships
     user = relationship("User", back_populates="conversations")
+
+    def to_domain_model(self):
+        """Convert to domain model"""
+        from src.core.models.conversation import Conversation as ConversationDomain
+        return ConversationDomain(
+            id=self.id,
+            user_id=self.user_id,
+            message=self.message,
+            response=self.response,
+            language=self.language,
+            timestamp=self.timestamp,
+            metadata=self.message_metadata,
+            embedding=self.embedding,
+            topic=self.topic,
+            num_tokens=self.num_tokens
+        )
 
     def to_dict(self):
         """Convert conversation to dictionary with proper datetime handling"""
@@ -74,7 +100,7 @@ class Conversation(Base):
         }
 
 class UserContext(Base):
-    """Model for storing user context and preferences"""
+    """SQLAlchemy model for storing user context and preferences"""
     __tablename__ = "user_context"
 
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
@@ -88,6 +114,20 @@ class UserContext(Base):
 
     # Relationships
     user = relationship("User", back_populates="context")
+
+    def to_domain_model(self):
+        """Convert to domain model"""
+        from src.core.models.context import Context as ContextDomain
+        return ContextDomain(
+            user_id=self.user_id,
+            context_messages=self.context_messages,
+            last_updated=self.last_updated,
+            preferred_language=self.preferred_language,
+            conversation_topics=self.conversation_topics,
+            user_preferences=self.user_preferences,
+            context_window=self.context_window,
+            repetition_threshold=self.repetition_threshold
+        )
 
     def add_message(self, role: str, content: str):
         """Add a message to the context"""
@@ -103,7 +143,7 @@ class UserContext(Base):
             self.context_messages = self.context_messages[-self.context_window:]
 
 class UserMemory(Base):
-    """Model for storing important user memories"""
+    """SQLAlchemy model for storing important user memories"""
     __tablename__ = "user_memories"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -118,4 +158,20 @@ class UserMemory(Base):
     is_active = Column(Boolean, default=True)  # Track if the memory is still active
 
     # Relationships
-    user = relationship("User", back_populates="memories") 
+    user = relationship("User", back_populates="memories")
+
+    def to_domain_model(self):
+        """Convert to domain model"""
+        from src.core.models.memory import Memory as MemoryDomain
+        return MemoryDomain(
+            id=self.id,
+            user_id=self.user_id,
+            memory_type=self.memory_type,
+            content=self.content,
+            importance=self.importance,
+            created_at=self.created_at,
+            last_accessed=self.last_accessed,
+            metadata=self.memory_metadata,
+            embedding=self.embedding,
+            is_active=self.is_active
+        ) 
