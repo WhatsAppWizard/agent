@@ -6,7 +6,6 @@ from src.core.interfaces.llm_provider import LLMProvider
 from src.core.interfaces.embedding_provider import EmbeddingProvider
 from src.core.interfaces.conversation_repository import ConversationRepository
 from src.core.interfaces.user_repository import UserRepository
-from src.core.interfaces.memory_repository import MemoryRepository
 from src.core.interfaces.context_manager import ContextManager
 
 logger = logging.getLogger(__name__)
@@ -20,14 +19,12 @@ class ConversationService:
         embedding_provider: EmbeddingProvider,
         conversation_repository: ConversationRepository,
         user_repository: UserRepository,
-        memory_repository: MemoryRepository,
         context_manager: ContextManager
     ):
         self.llm_provider = llm_provider
         self.embedding_provider = embedding_provider
         self.conversation_repository = conversation_repository
         self.user_repository = user_repository
-        self.memory_repository = memory_repository
         self.context_manager = context_manager
 
     async def process_message(self, user_id: str, message: str, language: str = "en") -> Dict[str, Any]:
@@ -49,7 +46,7 @@ class ConversationService:
                 }
 
             # Get conversation context
-            context_messages = await self._build_conversation_context(user_id, message_embedding)
+            context_messages = await self._build_conversation_context(user_id)
             
             # Generate LLM response
             llm_response = await self._generate_llm_response(context_messages, message)
@@ -99,8 +96,8 @@ class ConversationService:
             logger.error(f"Error checking repetition: {str(e)}")
             return False, None
 
-    async def _build_conversation_context(self, user_id: str, message_embedding: Optional[List[float]]) -> List[Dict[str, str]]:
-        """Build conversation context with system prompt, memories, and recent conversations"""
+    async def _build_conversation_context(self, user_id: str) -> List[Dict[str, str]]:
+        """Build conversation context with system prompt and recent conversations"""
         context_messages = []
         
         # Add system prompt
@@ -115,15 +112,7 @@ class ConversationService:
                 "content": f"User's preferred language: {preferences['preferred_language']}"
             })
         
-        # Add relevant memories
-        if message_embedding:
-            memories = await self.memory_repository.get_relevant_memories(user_id, message_embedding)
-            if memories:
-                memories_text = "\nRelevant context from previous conversations:\n" + \
-                              "\n".join([f"- {m['content']}" for m in memories])
-                context_messages.append({"role": "system", "content": memories_text})
-        
-        # Add recent conversations
+        # Add recent conversations (context retention)
         recent_conversations = await self.conversation_repository.get_recent_conversations(user_id, 10)
         for conv in reversed(recent_conversations):
             context_messages.append({"role": "user", "content": conv['message']})

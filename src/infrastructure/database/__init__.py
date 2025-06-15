@@ -1,4 +1,4 @@
-from .models import Base, User, Conversation, UserContext, UserMemory
+from .models import Base, User, Conversation, UserContext
 from .connection import DatabaseManager
 
 __all__ = [
@@ -6,6 +6,5 @@ __all__ = [
     'User',
     'Conversation', 
     'UserContext',
-    'UserMemory',
     'DatabaseManager'
 ] 

@@ -9,10 +9,9 @@ from src.infrastructure.external import OpenRouterLLMProvider, SentenceTransform
 from src.infrastructure.repositories import (
     SQLUserRepository, 
     SQLConversationRepository, 
-    SQLMemoryRepository, 
     SQLContextManager
 )
-from src.core.services import ConversationService, MemoryService
+from src.core.services import ConversationService
 from src.application.use_cases import ProcessMessageUseCase, GetContextUseCase
 
 logger = logging.getLogger(__name__)
@@ -28,12 +27,10 @@ class Container:
         # Repository instances (will be created per session)
         self._user_repository: SQLUserRepository = None
         self._conversation_repository: SQLConversationRepository = None
-        self._memory_repository: SQLMemoryRepository = None
         self._context_manager: SQLContextManager = None
         
         # Service instances
         self._conversation_service: ConversationService = None
-        self._memory_service: MemoryService = None
         
         # Use case instances
         self._process_message_use_case: ProcessMessageUseCase = None
@@ -66,7 +63,6 @@ class Container:
         return {
             'user_repository': SQLUserRepository(session),
             'conversation_repository': SQLConversationRepository(session),
-            'memory_repository': SQLMemoryRepository(session),
             'context_manager': SQLContextManager(session)
         }
 
@@ -79,18 +75,7 @@ class Container:
             embedding_provider=self._embedding_provider,
             conversation_repository=repositories['conversation_repository'],
             user_repository=repositories['user_repository'],
-            memory_repository=repositories['memory_repository'],
             context_manager=repositories['context_manager']
-        )
-
-    def get_memory_service(self, session: AsyncSession) -> MemoryService:
-        """Get memory service with session-specific repositories"""
-        repositories = self.get_repositories(session)
-        
-        return MemoryService(
-            memory_repository=repositories['memory_repository'],
-            embedding_provider=self._embedding_provider,
-            llm_provider=self._llm_provider
         )
 
     def get_process_message_use_case(self, session: AsyncSession) -> ProcessMessageUseCase:
@@ -104,9 +89,7 @@ class Container:
         
         return GetContextUseCase(
             user_repository=repositories['user_repository'],
-            memory_repository=repositories['memory_repository'],
-            conversation_repository=repositories['conversation_repository'],
-            embedding_provider=self._embedding_provider
+            conversation_repository=repositories['conversation_repository']
         )
 
     async def close(self):

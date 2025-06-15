@@ -38,7 +38,6 @@ class User(Base):
     # Relationships
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     context = relationship("UserContext", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    memories = relationship("UserMemory", back_populates="user", cascade="all, delete-orphan")
 
     def to_domain_model(self):
         """Convert to domain model"""
@@ -140,38 +139,4 @@ class UserContext(Base):
         })
         # Keep only the last N messages based on context_window
         if len(self.context_messages) > self.context_window:
-            self.context_messages = self.context_messages[-self.context_window:]
-
-class UserMemory(Base):
-    """SQLAlchemy model for storing important user memories"""
-    __tablename__ = "user_memories"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    memory_type = Column(String, nullable=False)  # e.g., "preference", "fact", "interaction"
-    content = Column(Text, nullable=False)
-    importance = Column(Float, default=1.0)
-    created_at = Column(DateTime(timezone=True), default=func.now())
-    last_accessed = Column(DateTime(timezone=True), default=func.now())
-    memory_metadata = Column(JSON)
-    embedding = Column(ARRAY(Float))
-    is_active = Column(Boolean, default=True)  # Track if the memory is still active
-
-    # Relationships
-    user = relationship("User", back_populates="memories")
-
-    def to_domain_model(self):
-        """Convert to domain model"""
-        from src.core.models.memory import Memory as MemoryDomain
-        return MemoryDomain(
-            id=self.id,
-            user_id=self.user_id,
-            memory_type=self.memory_type,
-            content=self.content,
-            importance=self.importance,
-            created_at=self.created_at,
-            last_accessed=self.last_accessed,
-            metadata=self.memory_metadata,
-            embedding=self.embedding,
-            is_active=self.is_active
-        ) 
+            self.context_messages = self.context_messages[-self.context_window:] 
